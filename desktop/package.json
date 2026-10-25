@@ -1,0 +1,68 @@
+{
+  "name": "hongguotv-desktop",
+  "productName": "HongguoTV",
+  "version": "1.0.6",
+  "private": true,
+  "description": "红果短剧桌面客户端",
+  "main": "main.js",
+  "license": "GPL-3.0-only",
+  "dependencies": {
+    "axios": "1.13.6"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "scripts": {
+    "start": "electron .",
+    "icon": "node build/make-icon.mjs",
+    "prepare-app": "node prepare.mjs",
+    "build": "node prepare.mjs && node build/make-icon.mjs && electron-builder",
+    "pack": "node prepare.mjs && node build/make-icon.mjs && electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.hongguotv.desktop",
+    "productName": "HongguoTV",
+    "asar": false,
+    "directories": {
+      "output": "../dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "build/icon.png",
+      "server/**/*",
+      "!server/**/*.bak",
+      "!server/node_modules/**/*",
+      "LICENSE"
+    ],
+    "extraFiles": [
+      {
+        "from": "portable.txt",
+        "to": "portable.txt"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "HongguoTV-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "红果短剧",
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
+  }
+}

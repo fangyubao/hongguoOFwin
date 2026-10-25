@@ -36,3 +36,24 @@ keystore.properties
 .externalNativeBuild/
 /ios/Pods/
 /ios/build/
+
+# 桌面端构建缓存与本地运行数据（统一放 F 盘，避免占用系统盘）
+/.tmp/
+/.npmcache/
+/.electron-cache/
+/.eb-cache/
+/.runtime/
+/.edge-tmp/
+/.edge-cdp/
+/desktop/node_modules/
+/desktop/server/
+/desktop/data/
+/desktop/dist/
+
+# 运行时数据：本地索引、设备标识、临时截图（都由程序或脚本自动生成）
+/data/
+/server/.device.json
+shot*.png
+
+# desktop/build 是打包资源（图标生成脚本 + ico/png），不能跟着 build/ 一起忽略
+!/desktop/build/

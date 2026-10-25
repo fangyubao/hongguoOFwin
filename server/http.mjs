@@ -1,5 +1,10 @@
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
+
+const WEB_INDEX = new URL("./web/index.html", import.meta.url);
+const CHUNK = 1024 * 1024;
+const MAX_STREAMS = 8;
 
 export function byteRange(value, total) {
   if (!value) return [0, total - 1];
@@ -20,10 +25,16 @@ export function byteRange(value, total) {
     : null;
 }
 
+function pageParam(url) {
+  const page = Number(url.searchParams.get("page") || 1);
+  return Number.isInteger(page) && page >= 1 && page <= 1000 ? page : null;
+}
+
 export function createServer(provider, token = "") {
   let activeStreams = 0;
   return http.createServer(async (req, res) => {
     const json = (status, value) => {
+      if (res.headersSent) return res.end();
       res.writeHead(status, {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store",
@@ -34,57 +45,102 @@ export function createServer(provider, token = "") {
     if (token) {
       const actual = Buffer.from(req.headers.authorization || "");
       const expected = Buffer.from(`Bearer ${token}`);
-      if (
-        actual.length !== expected.length ||
-        !timingSafeEqual(actual, expected)
-      )
+      if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
         return json(401, { error: "服务访问口令不正确" });
     }
     if (!["GET", "HEAD"].includes(req.method))
       return json(405, { error: "Method not allowed" });
+
     try {
-      if (url.pathname === "/health")
+      const { pathname } = url;
+
+      if (pathname === "/" || pathname === "/index.html" || pathname === "/app") {
+        const html = await readFile(WEB_INDEX);
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-cache",
+        });
+        return res.end(html);
+      }
+
+      if (pathname === "/health" || pathname === "/api/status")
         return json(200, {
           service: "hongguotv",
-          version: "0.1.0",
-          apiVersion: 1,
-          upstream: "unverified",
+          version: "1.0.0",
+          apiVersion: 2,
+          ...provider.status(),
         });
-      if (url.pathname === "/api/home" || url.pathname === "/api/search") {
-        const page = Number(url.searchParams.get("page") || 1);
-        if (!Number.isInteger(page) || page < 1 || page > 100)
-          return json(400, { error: "分页参数无效" });
+
+      if (pathname === "/api/home") {
+        const page = pageParam(url);
+        if (!page) return json(400, { error: "分页参数无效" });
+        return json(200, await provider.home(page));
+      }
+
+      if (pathname === "/api/categories")
+        return json(200, await provider.categories());
+
+      // 手动触发一次索引更新（界面上「立即更新」按钮用）
+      if (pathname === "/api/refresh") {
+        if (typeof provider.refresh !== "function")
+          return json(501, { error: "当前版本不支持手动更新" });
+        return json(200, await provider.refresh());
+      }
+
+      if (pathname === "/api/category") {
+        const page = pageParam(url);
+        if (!page) return json(400, { error: "分页参数无效" });
+        const tag = (url.searchParams.get("tag") || "").trim().slice(0, 30);
+        return json(200, await provider.category(tag, page));
+      }
+
+      if (pathname === "/api/search") {
+        const page = pageParam(url);
+        if (!page) return json(400, { error: "分页参数无效" });
         const keyword = (url.searchParams.get("q") || "").trim();
-        if (
-          url.pathname.endsWith("search") &&
-          (!keyword || keyword.length > 80)
-        )
+        if (!keyword || keyword.length > 80)
           return json(400, { error: "请输入 1–80 字的关键词" });
-        return json(
-          200,
-          url.pathname.endsWith("home")
-            ? await provider.home(page)
-            : await provider.search(keyword, page)
-        );
+        const localOnly = url.searchParams.get("local") === "1";
+        return json(200, await provider.search(keyword, page, { localOnly }));
       }
-      const detail = /^\/api\/series\/(\d{1,30})$/.exec(url.pathname);
+
+      if (pathname === "/api/detail") {
+        const id = (url.searchParams.get("id") || "").trim();
+        if (!/^\d{1,30}$/.test(id)) return json(400, { error: "剧集 ID 无效" });
+        return json(200, await provider.detail(id));
+      }
+
+      if (pathname === "/api/qualities") {
+        const vid = (url.searchParams.get("vid") || "").trim();
+        if (!/^\d{1,30}$/.test(vid)) return json(400, { error: "分集 ID 无效" });
+        return json(200, await provider.qualities(vid));
+      }
+
+      const detail = /^\/api\/series\/(\d{1,30})$/.exec(pathname);
       if (detail) return json(200, await provider.detail(detail[1]));
-      const play = /^\/api\/episodes\/(\d{1,30})\/(play|stream)$/.exec(
-        url.pathname
-      );
+
+      const play = /^\/api\/episodes\/(\d{1,30})\/(play|stream)$/.exec(pathname);
       if (!play) return json(404, { error: "接口不存在" });
+
+      const vid = play[1];
+      const quality = (url.searchParams.get("quality") || "auto").trim().slice(0, 16);
+      const fresh = url.searchParams.get("fresh") === "1";
+
       if (play[2] === "play") {
-        await provider.stream(play[1], url.searchParams.get("fresh") === "1");
+        const stream = await provider.stream(vid, { quality, fresh });
         return json(200, {
-          path: `/api/episodes/${play[1]}/stream`,
+          path: `/api/episodes/${vid}/stream?quality=${encodeURIComponent(quality)}`,
           contentType: "video/mp4",
+          total: stream.total,
+          quality: stream.quality,
         });
       }
-      if (activeStreams >= 4)
+
+      if (activeStreams >= MAX_STREAMS)
         return json(503, { error: "同时播放数已达上限，请稍后重试" });
-      activeStreams++;
+      activeStreams += 1;
       try {
-        const stream = await provider.stream(play[1]);
+        const stream = await provider.stream(vid, { quality, fresh });
         const range = byteRange(req.headers.range, stream.total);
         if (!range) {
           res.writeHead(416, { "Content-Range": `bytes */${stream.total}` });
@@ -99,26 +155,18 @@ export function createServer(provider, token = "") {
         };
         if (req.headers.range)
           headers["Content-Range"] = `bytes ${start}-${end}/${stream.total}`;
-        // Validate the first chunk before sending success headers; then stream with backpressure.
-        const chunkSize = 1024 * 1024;
+        // 先取到首个分片再发成功头，避免“200 已发出但上游其实失败”。
         const first =
           req.method === "HEAD"
             ? null
-            : await stream.chunk(start, Math.min(start + chunkSize - 1, end));
+            : await stream.chunk(start, Math.min(start + CHUNK - 1, end));
         res.writeHead(req.headers.range ? 206 : 200, headers);
         if (req.method === "HEAD") return res.end();
-        for (
-          let offset = start;
-          offset <= end && !res.destroyed;
-          offset += chunkSize
-        ) {
+        for (let offset = start; offset <= end && !res.destroyed; offset += CHUNK) {
           const chunk =
             offset === start
               ? first
-              : await stream.chunk(
-                  offset,
-                  Math.min(offset + chunkSize - 1, end)
-                );
+              : await stream.chunk(offset, Math.min(offset + CHUNK - 1, end));
           if (res.destroyed) break;
           if (!res.write(chunk)) {
             await new Promise((resolve) => {
@@ -132,24 +180,25 @@ export function createServer(provider, token = "") {
             });
           }
         }
-        res.end();
+        return res.end();
       } finally {
-        activeStreams--;
+        activeStreams -= 1;
       }
     } catch (error) {
-      // Upstream messages may contain signed URLs. Never echo them into client responses or logs.
+      // 上游信息可能含签名 URL，不要把原始报文回显给客户端
       console.error(
         JSON.stringify({
           event: "request_failed",
           path: url.pathname,
           code: error.code || "UPSTREAM_ERROR",
+          message: String(error.message || "").slice(0, 200),
         })
       );
-      if (res.headersSent) res.destroy();
-      else
-        json(502, {
-          error: "内容源暂不可用，请稍后重试；服务连通不代表内容源可用",
-        });
+      if (res.headersSent) return res.destroy();
+      const message = /不存在|暂不可用|无效/.test(error.message || "")
+        ? error.message
+        : "内容源暂不可用，请稍后重试";
+      return json(502, { error: message });
     }
   });
 }
