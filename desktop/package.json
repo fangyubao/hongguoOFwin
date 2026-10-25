@@ -17,8 +17,9 @@
     "start": "electron .",
     "icon": "node build/make-icon.mjs",
     "prepare-app": "node prepare.mjs",
-    "build": "node prepare.mjs && node build/make-icon.mjs && electron-builder",
-    "pack": "node prepare.mjs && node build/make-icon.mjs && electron-builder --dir"
+    "build": "node prepare.mjs && node build/make-icon.mjs && electron-builder && node build/clean-localappdata.mjs",
+    "pack": "node prepare.mjs && node build/make-icon.mjs && electron-builder --dir && node build/clean-localappdata.mjs",
+    "clean": "node build/clean-localappdata.mjs"
   },
   "build": {
     "appId": "com.hongguotv.desktop",

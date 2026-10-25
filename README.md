@@ -1,5 +1,28 @@
 # hongguoTV
 
+## Windows 桌面版
+
+在原有 Android / TV 版本之外，本仓库额外提供一套 Windows 桌面客户端（Electron + 本地内容服务）。
+
+- **安装时请把安装目录改到非系统盘**（例如 `F:\HongguoTV`）。客户端使用便携模式，索引和缓存写在安装目录旁的 `data\`，不会往 C 盘写；如果装在 `C:\Program Files` 这类不可写目录，数据会退回系统默认位置。
+- 内置 1.1 万部剧的本地索引，装完第一次打开就能搜索、看分类，不用等抓取。
+- 每 6 小时自动刷新官网分类，并用关键词增量扩库；「文件 → 立即更新内容库」可手动触发，列表标题旁显示上次更新时间。
+- 搜索、分类、封面墙、选集、连播、倍速、清晰度切换、观看历史、断点续播、收藏齐全；支持局域网内电视/手机用浏览器访问。
+
+构建：
+
+```bash
+cd desktop
+npm install
+npm run build   # 产出 ../dist/HongguoTV-Setup-<version>.exe
+```
+
+打包脚本结束时会自动清理 `%LOCALAPPDATA%\hongguotv-desktop-updater`——那是构建工具留下的安装包副本，不清会一直占系统盘。
+
+实现说明：`desktop/main.js` 负责窗口、菜单、局域网访问与显卡兼容；`server/` 负责内容接入（含 SM3 签名的纯 JS 实现）、本地索引、搜索与播放流代理；`server/web/` 是单文件 Web 界面。
+
+---
+
 当前分支提供 **Kotlin 原生独立 APK**：安装后联网即可使用，无需 Node / Docker。最低 Android 8.0，电视遥控器操作。
 
 **[下载原生版 APK](https://github.com/N3urda/hongguoTV-updates/releases/latest)** · [原生版说明与构建](kotlin-tv/README.md)
