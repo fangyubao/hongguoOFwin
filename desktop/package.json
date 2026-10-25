@@ -1,7 +1,7 @@
 {
   "name": "hongguotv-desktop",
   "productName": "HongguoTV",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "description": "红果短剧桌面客户端",
   "main": "main.js",
